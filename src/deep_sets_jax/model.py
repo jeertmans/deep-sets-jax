@@ -6,49 +6,133 @@ import jax.numpy as jnp
 from jaxtyping import Array, Float, UInt
 
 
-class DeepSets(eqx.Module):
-    """A (very basic) Deep Sets model."""
+class Phi(eqx.Module):
+    """
+    Phi function from the Deep Sets structure.
+
+    This function is applied to each image separately.
+    """
 
     layers: list
     """The list of layers."""
 
-    def __init__(self, key: jax.random.PRNGKey):
+    def __init__(self, *, key: jax.random.PRNGKey):
+        """
+        Initialize the model.
+
+        Args:
+            key: The random key to be used.
+        """
+        key1, key2 = jax.random.split(key, 2)
+        self.layers = [
+            eqx.nn.Conv2d(1, 10, kernel_size=5, key=key1),
+            eqx.nn.MaxPool2d(kernel_size=2),
+            jax.nn.relu,
+            eqx.nn.Conv2d(10, 20, kernel_size=5, key=key2),
+            eqx.nn.MaxPool2d(kernel_size=2),
+            jax.nn.relu,
+        ]
+
+    def __call__(self, x: Float[Array, "1 28 28"]) -> Float[Array, " "]:
+        """
+        Evaluate the model.
+
+        Arg:
+            x: The input image.
+
+        Return:
+            The output of the model.
+        """
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
+
+
+class Rho(eqx.Module):
+    """
+    Rho function from the Deep Sets structure.
+
+    This function is applied to all the images combined,
+    after they have been passed in Phi.
+    """
+
+    layers: list
+    """The list of layers."""
+
+    def __init__(self, *, key: jax.random.PRNGKey):
+        """
+        Initialize the model.
+
+        Args:
+            key: The random key to be used.
+        """
+        key1, key2, key3 = jax.random.split(key, 3)
+        self.layers = [
+            eqx.nn.Linear(6480, 500, key=key1),
+            jax.nn.relu,
+            eqx.nn.Linear(500, 50, key=key2),
+            jax.nn.relu,
+            eqx.nn.Linear(50, 10, key=key3),
+            jax.nn.relu,
+        ]
+
+    def __call__(self, x: Float[Array, "1 28 28"]) -> Float[Array, " "]:
+        """
+        Evaluate the model.
+
+        Arg:
+            x: The (intermediate) input.
+
+        Return:
+            The output of the model.
+        """
+        for layer in self.layers:
+            x = layer(x)
+
+        x = x * jnp.arange(10)  # Each of the 10 outputs is assigned a digit
+
+        return x.sum()
+
+
+class DeepSets(eqx.Module):
+    """A (very basic) Deep Sets model."""
+
+    phi: Phi
+    rho: Rho
+
+    def __init__(self, *, key: jax.random.PRNGKey):
         """
         Initialize a Deep Sets model.
 
         Args:
             key: The random key to be used.
         """
-        key1, key2, key3, key4, key5 = jax.random.split(key, 5)
-        self.layers = [
-            lambda x: jnp.expand_dims(
-                x, axis=1
-            ),  # Turn input to [num_images, 1, 28, 28]
-            # We need to use vmap because JAX does not automatically map over leading axis
-            jax.vmap(eqx.nn.Conv2d(1, 10, kernel_size=5, key=key1)),
-            jax.vmap(eqx.nn.MaxPool2d(kernel_size=2)),
-            jax.nn.relu,
-            jax.vmap(eqx.nn.Conv2d(10, 20, kernel_size=5, key=key2)),
-            jax.vmap(eqx.nn.MaxPool2d(kernel_size=2)),
-            jax.nn.relu,
-            # We sum over `num_images`
-            lambda x: jnp.sum(x, axis=0, keepdims=True),
-            jnp.ravel,
-            eqx.nn.Linear(6480, 500, key=key3),
-            jax.nn.relu,
-            eqx.nn.Linear(500, 10, key=key4),
-            jax.nn.relu,
-            eqx.nn.Linear(10, 1, key=key5),
-        ]
+        key1, key2 = jax.random.split(key, 2)
 
-    def __call__(self, x: Float[Array, "num_images 28 28"]) -> Float[Array, " "]:  # noqa: D102
-        for layer in self.layers:
-            x = layer(x)
+        self.phi = Phi(key=key1)
+        self.rho = Rho(key=key2)
 
-        return x.sum()
+    def __call__(self, x: Float[Array, "num_images 28 28"]) -> Float[Array, " "]:
+        """
+        Evaluate the model.
+
+        Arg:
+            x: The input images.
+
+        Return:
+            The output of the model.
+        """
+        x = jnp.expand_dims(x, axis=1)
+        x = jax.vmap(self.phi)(x)
+        # We sum over `num_images`
+        x = jnp.sum(x, axis=0)
+        x = jnp.ravel(x)
+        x = self.rho(x)
+
+        return x
 
 
-@eqx.filter_jit
 def loss(
     model: DeepSets,
     x: Float[Array, "num_images 28 28"],

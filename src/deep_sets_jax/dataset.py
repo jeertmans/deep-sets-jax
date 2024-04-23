@@ -80,7 +80,7 @@ class Dataset(eqx.Module):
         return (self.x_test - self.x_train_mean) / self.x_train_std
 
     def sample_train(
-        self, key, **kwargs: Any
+        self, *, key: jax.random.PRNGKey, **kwargs: Any
     ) -> Iterator[tuple[Float[Array, "num_images 26 26"], UInt[Array, " "]]]:
         """Sample the (normalized) train set to generate a sequence of training images.
 
@@ -103,7 +103,7 @@ class Dataset(eqx.Module):
             yield x_train, y_train.sum()
 
     def sample_test(
-        self, key, **kwargs: Any
+        self, *, key: jax.random.PRNGKey, **kwargs: Any
     ) -> Iterator[tuple[Float[Array, "num_images 26 26"], UInt[Array, " "]]]:
         """Sample the (normalized) test set to generate a sequence of training images.
 
